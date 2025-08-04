@@ -1,40 +1,208 @@
-// api.js - API service for making requests to the backend
-
 import axios from 'axios';
+import toast from 'react-hot-toast';
 
-// Create axios instance with base URL
+// Create axios instance
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Add request interceptor for authentication
+// Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Log request in development
+    if (import.meta.env.DEV) {
+      console.log(`🚀 ${config.method?.toUpperCase()} ${config.url}`);
+    }
+
     return config;
   },
   (error) => {
+    if (import.meta.env.DEV) {
+      console.error('Request error:', error);
+    }
     return Promise.reject(error);
   }
 );
 
-// Add response interceptor for error handling
+// Response interceptor to handle common responses
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    // Handle authentication errors
-    if (error.response && error.response.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+  (response) => {
+    // Log response in development
+    if (import.meta.env.DEV) {
+      console.log(`✅ ${response.config.method?.toUpperCase()} ${response.config.url}`, response.data);
     }
-    return Promise.reject(error);
+
+    return response.data;
+  },
+  (error) => {
+    // Log error in development
+    if (import.meta.env.DEV) {
+      console.error('Response error:', error);
+    }
+
+    // Handle different error scenarios
+    if (error.response) {
+      // Server responded with error status
+      const { status, data } = error.response;
+
+      switch (status) {
+        case 401:
+          // Unauthorized - clear token and redirect to login
+          localStorage.removeItem('token');
+          if (window.location.pathname !== '/login') {
+            toast.error('Session expired. Please login again.');
+            window.location.href = '/login';
+          }
+          break;
+
+        case 403:
+          // Forbidden
+          toast.error('You do not have permission to perform this action');
+          break;
+
+        case 404:
+          // Not found
+          if (!window.location.pathname.includes('/404')) {
+            toast.error('The requested resource was not found');
+          }
+          break;
+
+        case 422:
+          // Validation error
+          if (data.errors && Array.isArray(data.errors)) {
+            data.errors.forEach((err) => {
+              toast.error(err.msg || err.message);
+            });
+          } else {
+            toast.error(data.message || 'Validation failed');
+          }
+          break;
+
+        case 429:
+          // Rate limit
+          toast.error('Too many requests. Please try again later.');
+          break;
+
+        case 500:
+          // Server error
+          toast.error('Server error. Please try again later.');
+          break;
+
+        default:
+          // Other errors
+          toast.error(data.message || 'An unexpected error occurred');
+      }
+
+      return Promise.reject(error.response.data);
+    } else if (error.request) {
+      // Network error
+      toast.error('Network error. Please check your connection.');
+      return Promise.reject({ message: 'Network error' });
+    } else {
+      // Other error
+      toast.error('An unexpected error occurred');
+      return Promise.reject({ message: error.message });
+    }
+  }
+);
+
+// API endpoints
+export const endpoints = {
+  // Auth endpoints
+  auth: {
+    login: '/auth/login',
+    register: '/auth/register',
+    logout: '/auth/logout',
+    me: '/auth/me',
+    updateProfile: '/auth/profile',
+    changePassword: '/auth/password',
+    deleteAccount: '/auth/account',
+  },
+
+  // Posts endpoints
+  posts: {
+    getAll: '/posts',
+    getById: (id) => `/posts/${id}`,
+    getBySlug: (slug) => `/posts/slug/${slug}`,
+    create: '/posts',
+    update: (id) => `/posts/${id}`,
+    delete: (id) => `/posts/${id}`,
+    like: (id) => `/posts/${id}/like`,
+    search: '/posts/search',
+    featured: '/posts/featured',
+  },
+
+  // Categories endpoints
+  categories: {
+    getAll: '/categories',
+    getById: (id) => `/categories/${id}`,
+    getBySlug: (slug) => `/categories/slug/${slug}`,
+    create: '/categories',
+    update: (id) => `/categories/${id}`,
+    delete: (id) => `/categories/${id}`,
+  },
+
+  // Comments endpoints
+  comments: {
+    getByPost: (postId) => `/posts/${postId}/comments`,
+    create: (postId) => `/posts/${postId}/comments`,
+    update: (id) => `/comments/${id}`,
+    delete: (id) => `/comments/${id}`,
+    like: (id) => `/comments/${id}/like`,
+    getReplies: (id) => `/comments/${id}/replies`,
+  },
+
+  // Upload endpoints
+  upload: {
+    image: '/upload/image',
+    file: '/upload/file',
+  },
+};
+
+// Helper functions for common API operations
+export const apiHelpers = {
+  // GET request with query parameters
+  get: (url, params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    const fullUrl = queryString ? `${url}?${queryString}` : url;
+    return api.get(fullUrl);
+  },
+
+  // POST request
+  post: (url, data = {}) => api.post(url, data),
+
+  // PUT request
+  put: (url, data = {}) => api.put(url, data),
+
+  // PATCH request
+  patch: (url, data = {}) => api.patch(url, data),
+
+  // DELETE request
+  delete: (url) => api.delete(url),
+
+  // Upload file
+  upload: (url, formData, onUploadProgress = null) => {
+    return api.post(url, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress,
+    });
+  },
+};
+
+// Export configured axios instance
+export default api;    return Promise.reject(error);
   }
 );
 
